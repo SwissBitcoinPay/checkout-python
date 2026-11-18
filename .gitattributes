@@ -1,0 +1,4 @@
+* text=auto eol=lf
+# Hashed byte for byte (tests/test_spec_pin.py, tests/test_bip340.py): never converted.
+spec/** -text
+tests/vectors/** -text

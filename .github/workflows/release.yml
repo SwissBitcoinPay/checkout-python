@@ -1,0 +1,100 @@
+name: Release
+
+# A maintainer pushes a tag vX.Y.Z on a commit of main (never a development or agent session).
+# This workflow runs the CI again, checks that the tag is the version pyproject.toml declares and
+# that its commit is on main, builds the package from the lockfile, then publishes it to PyPI by
+# trusted publishing (OIDC, no stored token) in the protected environment `pypi`, whose required
+# reviewers approve each release. See README.md, "Releases".
+on:
+  push:
+    tags: ["v*"]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
+
+env:
+  UV_PYTHON_DOWNLOADS: never
+  UV_NO_CACHE: "1"
+  PIP_DISABLE_PIP_VERSION_CHECK: "1"
+
+defaults:
+  run:
+    shell: bash
+
+jobs:
+  ci:
+    name: CI
+    uses: ./.github/workflows/ci.yml
+
+  build:
+    name: Check the tag and build
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+          # The history of main, to tell whether the tag's commit is on it.
+          fetch-depth: 0
+      - id: python
+        uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7.1.0
+        with:
+          python-version: "3.14"
+      - name: The tag is vX.Y.Z, the version of pyproject.toml, on a commit of main
+        env:
+          TAG: ${{ github.ref_name }}
+        run: |
+          version="$(python -c 'import tomllib; print(tomllib.load(open("pyproject.toml", "rb"))["project"]["version"])')"
+          if ! [[ "$TAG" =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+            echo "::error::The tag $TAG is not vX.Y.Z"; exit 1
+          fi
+          if [ "$TAG" != "v$version" ]; then
+            echo "::error::The tag $TAG is not the version of pyproject.toml ($version)"; exit 1
+          fi
+          git fetch --no-tags origin +refs/heads/main:refs/remotes/origin/main
+          if ! git merge-base --is-ancestor "$GITHUB_SHA" refs/remotes/origin/main; then
+            echo "::error::The commit of $TAG is not on main"; exit 1
+          fi
+      - name: Install uv (hashes of .github/ci-requirements.txt)
+        run: |
+          python -m pip install --require-hashes --only-binary :all: --no-deps -r .github/ci-requirements.txt
+      - name: Install the lockfile
+        run: uv sync --locked --no-install-project --python "${{ steps.python.outputs.python-path }}"
+      - name: Build (the backend of the lockfile, no isolation)
+        run: uv run --locked --no-sync python -m build --no-isolation --outdir dist .
+      - name: Check what was built
+        run: uv run --locked --no-sync python scripts/check_dist.py dist
+      - name: Hashes of what is published
+        run: sha256sum dist/*
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: dist
+          path: dist/
+          if-no-files-found: error
+          retention-days: 7
+
+  publish:
+    name: Publish to PyPI
+    needs: [ci, build]
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    environment:
+      name: pypi
+      url: https://pypi.org/project/sattleme-checkout/
+    permissions:
+      # Trusted publishing: the OIDC token PyPI exchanges for a short-lived upload token. This
+      # job alone, in the protected environment, has it.
+      id-token: write
+    steps:
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: dist
+          path: dist/
+      - uses: pypa/gh-action-pypi-publish@7245906fb61fa33a13554f9d5fb856fe61758086 # v1.14.3
+        with:
+          packages-dir: dist/
+          print-hash: true

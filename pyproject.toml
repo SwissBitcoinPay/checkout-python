@@ -1,0 +1,127 @@
+[build-system]
+requires = ["flit_core==4.2.0"]
+build-backend = "flit_core.buildapi"
+
+[project]
+name = "sattleme-checkout"
+version = "1.0.0"
+description = "Take Lightning and on-chain payments for a sattle.me merchant from an online shop's server: invoices, deposit addresses, registry declarations, payment checks."
+readme = "README.md"
+license = "MIT"
+license-files = ["LICENSE"]
+authors = [{ name = "sattle.me" }]
+requires-python = ">=3.11"
+keywords = ["bitcoin", "lightning", "lnurl", "nostr", "payments", "sattleme"]
+classifiers = [
+  "Development Status :: 5 - Production/Stable",
+  "Framework :: AsyncIO",
+  "Intended Audience :: Developers",
+  "Operating System :: OS Independent",
+  "Programming Language :: Python :: 3",
+  "Programming Language :: Python :: 3 :: Only",
+  "Programming Language :: Python :: 3.11",
+  "Programming Language :: Python :: 3.12",
+  "Programming Language :: Python :: 3.13",
+  "Programming Language :: Python :: 3.14",
+  "Programming Language :: Python :: 3.15",
+  "Topic :: Office/Business :: Financial",
+  "Typing :: Typed",
+]
+# Why each one, and why these bounds: README.md, "Dependencies". uv.lock pins every package
+# exactly, with its hashes, for the CI and the release build.
+dependencies = [
+  "btclib-secp256k1==0.8.0.14",
+  "cryptography>=50.0.2",
+  "websockets>=17.4,<18",
+]
+
+[project.urls]
+Homepage = "https://github.com/sattleme/checkout-python"
+Source = "https://github.com/sattleme/checkout-python"
+Changelog = "https://github.com/sattleme/checkout-python/blob/main/CHANGELOG.md"
+Issues = "https://github.com/sattleme/checkout-python/issues"
+Specification = "https://github.com/sattleme/checkout-spec"
+
+[dependency-groups]
+dev = [
+  "build==1.6.1",
+  "flit-core==4.2.0",
+  "mypy==2.4.1",
+  "pytest==9.2.0",
+  "ruff==0.17.4",
+]
+
+[tool.flit.module]
+name = "sattleme_checkout"
+
+[tool.flit.sdist]
+include = ["CHANGELOG.md", "SECURITY.md", "spec/", "tests/"]
+exclude = ["**/__pycache__", "**/*.pyc"]
+
+[tool.uv]
+# The lockfile is the one source of the versions: `uv sync --locked` fails when it is out of date.
+# The CI's uv is exact (.github/ci-requirements.txt, with its hashes); this floor leaves room for
+# the older uv Dependabot updates the lockfile with (0.12.18), whose lockfile the CI's uv accepts.
+required-version = ">=0.12.18"
+# No version younger than a week is ever locked (Dependabot waits as long): time for a compromised
+# release to be found and yanked before it reaches this repository.
+exclude-newer = "7 days"
+
+[tool.pytest.ini_options]
+minversion = "9.0"
+testpaths = ["tests"]
+# The package from its source: the CI installs the lockfile alone (`--no-install-project`), so that
+# no build backend comes from outside it.
+pythonpath = ["src"]
+addopts = ["--strict-markers", "--strict-config", "-ra"]
+xfail_strict = true
+filterwarnings = ["error"]
+
+[tool.mypy]
+strict = true
+python_version = "3.11"
+files = ["src", "tests", "scripts"]
+mypy_path = ["src", "tests"]
+warn_unreachable = true
+enable_error_code = ["ignore-without-code", "redundant-expr", "truthy-bool"]
+
+[tool.ruff]
+line-length = 100
+target-version = "py311"
+src = ["src", "tests", "scripts"]
+
+[tool.ruff.lint]
+select = [
+  "A",     # builtins shadowed
+  "ASYNC", # asyncio pitfalls
+  "B",     # bugbear
+  "BLE",   # blind except
+  "C4",    # comprehensions
+  "E",     # pycodestyle errors
+  "F",     # pyflakes
+  "FBT",   # boolean positional arguments
+  "I",     # import order
+  "ISC",   # implicit string concatenation
+  "N",     # naming
+  "PIE",
+  "PT",    # pytest style
+  "PTH",   # pathlib
+  "RET",   # returns
+  "RUF",
+  "S",     # bandit
+  "SIM",   # simplifications
+  "T20",   # print
+  "UP",    # pyupgrade
+  "W",     # pycodestyle warnings
+]
+
+# The specification's own signs, in docstrings and messages.
+allowed-confusables = ["×", "−"]
+
+[tool.ruff.lint.flake8-pytest-style]
+fixture-parentheses = false
+
+[tool.ruff.lint.per-file-ignores]
+# Tests assert, hold the vectors' test keys and fixed random bytes, and print nothing.
+"tests/**" = ["S101", "S105", "S106", "S311", "FBT001", "FBT003", "PT018"]
+"scripts/**" = ["T201"]

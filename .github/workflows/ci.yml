@@ -1,0 +1,96 @@
+name: CI
+
+# Every pull request and every push to main (and the release workflow, before it publishes): the
+# pinned copy of the specification, the formatter, the linter, the type checker and the build on
+# one job; the tests on every supported version of Python, on Linux and on Windows (the package's
+# cryptography is native code). Never the network in the tests: local relays and fakes.
+#
+# Runners: GitHub-hosted only. Never a self-hosted runner: the repository is public, and any fork's
+# pull request would run on it.
+on:
+  pull_request:
+  push:
+    branches: [main]
+  workflow_call:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+env:
+  # uv installs the lockfile as it is (`--locked`), on the interpreter setup-python gives: it never
+  # downloads one, and never upgrades anything.
+  UV_PYTHON_DOWNLOADS: never
+  UV_NO_CACHE: "1"
+  # Files copied into the environment, never cloned nor hard-linked.
+  UV_LINK_MODE: copy
+  PIP_DISABLE_PIP_VERSION_CHECK: "1"
+
+defaults:
+  run:
+    shell: bash
+
+jobs:
+  checks:
+    name: Checks
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - id: python
+        uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7.1.0
+        with:
+          python-version: "3.14"
+      - name: Install uv (hashes of .github/ci-requirements.txt)
+        run: |
+          python -m pip install --require-hashes --only-binary :all: --no-deps -r .github/ci-requirements.txt
+      - name: Install the lockfile
+        run: uv sync --locked --no-install-project --python "${{ steps.python.outputs.python-path }}"
+      - name: The pinned copy of the specification
+        run: uv run --locked --no-sync python -m pytest tests/test_spec_pin.py
+      - name: Format
+        run: uv run --locked --no-sync ruff format --check .
+      - name: Lint
+        run: uv run --locked --no-sync ruff check .
+      - name: Types
+        run: uv run --locked --no-sync mypy
+      - name: Build (the backend of the lockfile, no isolation)
+        run: uv run --locked --no-sync python -m build --no-isolation --outdir dist .
+      - name: Check what was built
+        run: uv run --locked --no-sync python scripts/check_dist.py dist
+
+  tests:
+    name: Tests (Python ${{ matrix.python }}, ${{ matrix.os }})
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 20
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [linux, windows]
+        # pyproject.toml: requires-python >= 3.11, and every version upstream supports.
+        python: ["3.11", "3.12", "3.13", "3.14", "3.15"]
+        include:
+          - os: linux
+            runner: ubuntu-24.04
+          - os: windows
+            runner: windows-2025
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - id: python
+        uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7.1.0
+        with:
+          python-version: ${{ matrix.python }}
+      - name: Install uv (hashes of .github/ci-requirements.txt)
+        run: |
+          python -m pip install --require-hashes --only-binary :all: --no-deps -r .github/ci-requirements.txt
+      - name: Install the lockfile
+        run: uv sync --locked --no-install-project --python "${{ steps.python.outputs.python-path }}"
+      - name: Tests
+        run: uv run --locked --no-sync python -m pytest
