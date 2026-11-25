@@ -30,7 +30,7 @@ classifiers = [
 # Why each one, and why these bounds: README.md, "Dependencies". uv.lock pins every package
 # exactly, with its hashes, for the CI and the release build.
 dependencies = [
-  "btclib-secp256k1==0.8.0.14",
+  "btclib-secp256k1==0.8.0.16",
   "cryptography>=50.0.2",
   "websockets>=17.4,<18",
 ]
@@ -48,7 +48,7 @@ dev = [
   "flit-core==4.2.0",
   "mypy==2.4.1",
   "pytest==9.2.0",
-  "ruff==0.17.4",
+  "ruff==0.17.5",
 ]
 
 [tool.flit.module]
